@@ -24,16 +24,16 @@ body {
 }
 
 canvas {
-  background: #000;
   border: 2px solid #fff;
   max-width: 100%;
 }
 
+/* Hide controls by default (desktop) */
 #controls {
+  display: none;
   position: fixed;
   bottom: 20px;
   width: 100%;
-  display: flex;
   justify-content: space-between;
   padding: 0 40px;
   box-sizing: border-box;
@@ -83,12 +83,18 @@ Health: <span id="health">10</span>
 </div>
 
 <script>
+/* ===== TOUCH DEVICE DETECTION ===== */
+const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+if (isTouchDevice) {
+  document.getElementById("controls").style.display = "flex";
+}
+
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
 function resizeCanvas() {
   canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight * 0.75;
+  canvas.height = window.innerHeight;
 }
 resizeCanvas();
 window.addEventListener("resize", resizeCanvas);
@@ -119,8 +125,47 @@ const map = [
 "111111111111111111111111111111111111"
 ];
 
-/* ================= */
+/* ===== VISUAL COLORS ===== */
+const SKY_TOP = "#bde0fe";
+const SKY_BOTTOM = "#90caf9";
+const MOUNTAIN_COLOR = "#8ecae6";
+const DIRT_COLOR = "#6b4f2a";
+const GRASS_COLOR = "#2ecc71";
+const ROCK_COLOR = "#8d6e63";
+const SHADOW_COLOR = "rgba(0,0,0,0.25)";
 
+/* ===== PRE-GENERATED TILE DETAILS ===== */
+const tileDetails = [];
+
+for (let r = 0; r < map.length; r++) {
+  tileDetails[r] = [];
+  for (let c = 0; c < map[r].length; c++) {
+
+    tileDetails[r][c] = { rocks: [], grass: [] };
+
+    if (map[r][c] === "1") {
+
+      for (let i = 0; i < 3; i++) {
+        tileDetails[r][c].rocks.push({
+          x: Math.random() * TILE,
+          y: Math.random() * TILE,
+          size: 3 + Math.random() * 3
+        });
+      }
+
+      if (r > 0 && map[r - 1][c] === "0") {
+        if (Math.random() < 0.4) {
+          tileDetails[r][c].grass.push({
+            x: 8 + Math.random() * 20,
+            h: 6 + Math.random() * 6
+          });
+        }
+      }
+    }
+  }
+}
+
+/* ===== PLAYER ===== */
 const player = {
   x: 200,
   y: 200,
@@ -160,31 +205,30 @@ function spawnMachine() {
 const GRAVITY = 0.6;
 const FRICTION = 0.8;
 
-/* ===== KEY SUPPORT (WASD + ARROWS) ===== */
-
+/* ===== KEY SUPPORT ===== */
 const keys = {};
 
 addEventListener("keydown", e => {
-  const k = e.key.toLowerCase();
-  keys[k] = true;
+  keys[e.key.toLowerCase()] = true;
 });
 
 addEventListener("keyup", e => {
-  const k = e.key.toLowerCase();
-  keys[k] = false;
+  keys[e.key.toLowerCase()] = false;
 });
 
+/* Touch buttons */
 function bindTouch(btn, key) {
   btn.addEventListener("touchstart", e => { e.preventDefault(); keys[key] = true; });
   btn.addEventListener("touchend", e => { e.preventDefault(); keys[key] = false; });
 }
 
-bindTouch(left, "arrowleft");
-bindTouch(right, "arrowright");
-bindTouch(jump, " ");
-bindTouch(fire, "k");
+if (isTouchDevice) {
+  bindTouch(left, "arrowleft");
+  bindTouch(right, "arrowright");
+  bindTouch(jump, " ");
+  bindTouch(fire, "k");
+}
 
-/* ================= */
 
 function fireBullet() {
   bullets.push({
@@ -214,12 +258,8 @@ function isSolidTile(col, row) {
 }
 
 function bulletHitsWall(x, y) {
-  const col = Math.floor(x / TILE);
-  const row = Math.floor(y / TILE);
-  return isSolidTile(col, row);
+  return isSolidTile(Math.floor(x / TILE), Math.floor(y / TILE));
 }
-
-/* ===== PLAYER MOVEMENT ===== */
 
 function horizontalCollision() {
   player.x += player.vx;
@@ -296,8 +336,6 @@ function update() {
   }
 }
 
-/* ===== BULLET COLLISION WITH WALLS ===== */
-
 function updateBullets() {
   for (let i = bullets.length - 1; i >= 0; i--) {
     let b = bullets[i];
@@ -308,10 +346,7 @@ function updateBullets() {
       continue;
     }
 
-    const dx = b.x - machine.x;
-    const dy = b.y - machine.y;
-
-    if (Math.hypot(dx, dy) < 20) {
+    if (Math.hypot(b.x - machine.x, b.y - machine.y) < 20) {
       bullets.splice(i, 1);
       machineHits++;
 
@@ -336,10 +371,7 @@ function updateEnemyBullets() {
       continue;
     }
 
-    const dx = b.x - (player.x + player.w/2);
-    const dy = b.y - (player.y + player.h/2);
-
-    if (Math.hypot(dx, dy) < 15) {
+    if (Math.hypot(b.x - (player.x + player.w/2), b.y - (player.y + player.h/2)) < 15) {
       enemyBullets.splice(i, 1);
       player.health--;
       healthEl.textContent = player.health;
@@ -348,14 +380,63 @@ function updateEnemyBullets() {
   }
 }
 
-/* ===== DRAWING ===== */
+/* ===== NEW VISUAL DRAWING ===== */
+
+function drawBackground() {
+  const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  grad.addColorStop(0, SKY_TOP);
+  grad.addColorStop(1, SKY_BOTTOM);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = MOUNTAIN_COLOR;
+  for (let i = 0; i < 5; i++) {
+    let baseX = i * 500 - cameraX * 0.2;
+    ctx.beginPath();
+    ctx.arc(baseX + 250, canvas.height - 50, 300, Math.PI, 0);
+    ctx.fill();
+  }
+}
 
 function drawMap() {
   for (let r = 0; r < map.length; r++) {
     for (let c = 0; c < map[r].length; c++) {
-      if (map[r][c] === "1") {
-        ctx.fillStyle = "#444";
-        ctx.fillRect(c * TILE - cameraX, r * TILE, TILE, TILE);
+
+      if (map[r][c] !== "1") continue;
+
+      let x = c * TILE - cameraX;
+      let y = r * TILE;
+
+      ctx.fillStyle = DIRT_COLOR;
+      ctx.fillRect(x, y, TILE, TILE);
+
+      ctx.fillStyle = ROCK_COLOR;
+      tileDetails[r][c].rocks.forEach(rock => {
+        ctx.fillRect(x + rock.x, y + rock.y, rock.size, rock.size);
+      });
+
+      if (!isSolidTile(c, r - 1)) {
+        ctx.fillStyle = GRASS_COLOR;
+        ctx.fillRect(x, y, TILE, 8);
+
+        ctx.strokeStyle = "#1e8449";
+        ctx.lineWidth = 2;
+        tileDetails[r][c].grass.forEach(g => {
+          ctx.beginPath();
+          ctx.moveTo(x + g.x, y + 2);
+          ctx.lineTo(x + g.x, y - g.h);
+          ctx.stroke();
+        });
+      }
+
+      if (!isSolidTile(c, r + 1)) {
+        ctx.fillStyle = SHADOW_COLOR;
+        ctx.fillRect(x, y + TILE - 6, TILE, 6);
+      }
+
+      if (!isSolidTile(c - 1, r)) {
+        ctx.fillStyle = "rgba(0,0,0,0.15)";
+        ctx.fillRect(x, y, 5, TILE);
       }
     }
   }
@@ -410,6 +491,7 @@ function drawGameOver() {
 function loop() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   update();
+  drawBackground();
   drawMap();
   drawMachine();
   drawBullets();
@@ -420,6 +502,7 @@ function loop() {
 }
 
 loop();
+
 </script>
 </body>
 </html>
